@@ -1,0 +1,52 @@
+name: Bug report
+description: Report a reproducible integration problem
+title: "[Bug]: "
+labels: [bug]
+body:
+  - type: checkboxes
+    attributes:
+      label: Checklist
+      options:
+        - label: I searched existing issues.
+          required: true
+        - label: I tested with the latest available version.
+          required: true
+        - label: I removed private data and access tokens from logs.
+          required: true
+  - type: input
+    attributes:
+      label: Integration version
+      placeholder: 0.3.11-test
+    validations:
+      required: true
+  - type: input
+    attributes:
+      label: Home Assistant version and installation type
+      placeholder: Core 2026.7.4, Home Assistant OS
+    validations:
+      required: true
+  - type: input
+    attributes:
+      label: Scale model / advertised Bluetooth name
+      placeholder: YUNMAI-SIGNAL-CW
+    validations:
+      required: true
+  - type: dropdown
+    attributes:
+      label: Bluetooth path
+      options:
+        - Local adapter
+        - ESPHome Bluetooth proxy
+        - Other / unknown
+    validations:
+      required: true
+  - type: textarea
+    attributes:
+      label: What happened?
+      description: Include exact steps and the expected result.
+    validations:
+      required: true
+  - type: textarea
+    attributes:
+      label: Relevant debug log
+      render: text
