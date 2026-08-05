@@ -110,9 +110,44 @@ class YunmaiScaleManager:
         self.notification_session_id: int | None = None
         self.notification_callback_id: int | None = None
         self.notification_count = 0
-        self.bluez_cache_reset_count = 0
         self.ble_power_status = "pending"
         self.ble_power_details: dict[str, Any] = {}
+
+
+    @property
+    def diagnostics(self) -> dict[str, Any]:
+        """Return runtime diagnostics without personal measurement data."""
+        return {
+            "status": self.status,
+            "last_error": self.last_error,
+            "manager_running": (
+                self._connection_task is not None
+                and not self._connection_task.done()
+            ),
+            "connected": bool(self._client and self._client.is_connected),
+            "profile_count": len(self.profiles),
+            "stored_measurement_count": len(self.measurements),
+            "has_last_user": self.last_user_uid is not None,
+            "recognition": {
+                "max_relative_difference": self.max_relative_difference,
+                "min_second_best_margin_kg": self.min_second_best_margin_kg,
+                "stable_frames": self.stable_frames,
+                "max_stable_spread_kg": self.max_stable_spread_kg,
+            },
+            "ble": {
+                "power_optimization_enabled": (
+                    self.ble_power_optimization_enabled
+                ),
+                "power_mode": self.ble_power_mode,
+                "power_status": self.ble_power_status,
+                "power_details": dict(self.ble_power_details),
+                "connection_generation": self._connection_generation,
+                "active_generation": self._active_generation,
+                "notification_session_id": self.notification_session_id,
+                "notification_callback_id": self.notification_callback_id,
+                "notification_count": self.notification_count,
+            },
+        }
 
     @property
     def ble_power_mode(self) -> str:

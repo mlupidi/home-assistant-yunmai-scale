@@ -51,7 +51,8 @@
         "menu_options": {
           "bluetooth_power": "Bluetooth power optimization",
           "recognition": "Recognition thresholds",
-          "profiles": "Manage user profiles"
+          "profiles": "Manage user profiles",
+          "cancel": "Cancel"
         }
       },
       "recognition": {
@@ -92,7 +93,8 @@
           "profiles_add": "Add profile",
           "profiles_edit_select": "Edit profile",
           "profiles_delete_select": "Delete profile",
-          "back": "Back"
+          "back": "Back",
+          "cancel": "Cancel"
         }
       },
       "profiles_add": {
@@ -147,6 +149,9 @@
       "invalid_ble_latency": "Enter a peripheral latency from 0 to 499",
       "invalid_ble_timeout": "Enter a supervision timeout from 0.1 to 32 seconds",
       "ble_timeout_too_short": "The supervision timeout must be greater than 2 × interval × (latency + 1)"
+    },
+    "abort": {
+      "user_cancelled": "Setup was cancelled. No changes were saved."
     }
   }
 }

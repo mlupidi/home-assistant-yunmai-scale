@@ -16,7 +16,7 @@ from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.dispatcher import async_dispatcher_connect
 from homeassistant.helpers.entity import EntityCategory
 
-from .const import DOMAIN
+from .const import DOMAIN, PROFILE_SENSOR_KINDS
 from .manager import YunmaiScaleManager
 from .models import YunmaiProfile
 
@@ -31,12 +31,8 @@ async def async_setup_entry(hass: HomeAssistant, entry, async_add_entities) -> N
 
     for profile in manager.profiles:
         entities.extend(
-            (
-                YunmaiProfileSensor(manager, profile, "weight"),
-                YunmaiProfileSensor(manager, profile, "fat"),
-                YunmaiProfileSensor(manager, profile, "impedance"),
-                YunmaiProfileSensor(manager, profile, "timestamp"),
-            )
+            YunmaiProfileSensor(manager, profile, kind)
+            for kind in PROFILE_SENSOR_KINDS
         )
 
     async_add_entities(entities)
@@ -98,10 +94,6 @@ class YunmaiStatusSensor(YunmaiBaseSensor):
             ),
             "ble_power_mode": self.manager.ble_power_mode,
             "ble_power_status": self.manager.ble_power_status,
-            "ble_session_id": self.manager.notification_session_id,
-            "ble_callback_id": self.manager.notification_callback_id,
-            "ble_notification_count": self.manager.notification_count,
-            "bluez_cache_reset_count": self.manager.bluez_cache_reset_count,
         }
         attributes.update(self.manager.ble_power_details)
         if self.manager.last_error is not None:

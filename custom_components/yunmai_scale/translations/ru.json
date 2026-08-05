@@ -51,7 +51,8 @@
         "menu_options": {
           "bluetooth_power": "Экономия питания Bluetooth",
           "recognition": "Пороги распознавания",
-          "profiles": "Управление профилями"
+          "profiles": "Управление профилями",
+          "cancel": "Отмена"
         }
       },
       "recognition": {
@@ -92,7 +93,8 @@
           "profiles_add": "Добавить профиль",
           "profiles_edit_select": "Изменить профиль",
           "profiles_delete_select": "Удалить профиль",
-          "back": "Назад"
+          "back": "Назад",
+          "cancel": "Отмена"
         }
       },
       "profiles_add": {
@@ -147,6 +149,9 @@
       "invalid_ble_latency": "Укажите peripheral latency от 0 до 499",
       "invalid_ble_timeout": "Укажите supervision timeout от 0,1 до 32 секунд",
       "ble_timeout_too_short": "Supervision timeout должен быть больше 2 × интервал × (latency + 1)"
+    },
+    "abort": {
+      "user_cancelled": "Настройка отменена. Изменения не сохранены."
     }
   }
 }
