@@ -5,8 +5,6 @@ scales. It maintains a persistent BLE connection, recognizes configured users
 from live weight, sends the selected profile to the scale, and publishes the
 final measurement without using the Yunmai cloud.
 
-> Current pre-release build: **0.3.14-test**
-
 ![Yunmai Scale icon](custom_components/yunmai_scale/brand/icon.png)
 
 ## Features

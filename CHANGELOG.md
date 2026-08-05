@@ -4,20 +4,44 @@ All notable changes to this project are documented here.
 
 ## Unreleased
 
+## 0.4.0 - 2026-08-05
+
+First public release.
+
 ### Added
 
-- HACS-compatible repository structure and validation workflows.
-- English and Russian translations.
-- Local Home Assistant brand icon.
-- Privacy-safe downloadable diagnostics.
+- Persistent local BLE connection with automatic reconnect.
+- Multi-profile recognition and scale-side profile switching.
+- Weight, body-fat, last-measurement, raw-impedance, last-user, and session
+  status entities.
+- Profile add, edit, and delete flows with stable profile UIDs.
 - Automatic Entity Registry cleanup for deleted profiles.
+- Optional local BlueZ connection-parameter optimization.
+- English and Russian translations.
+- Privacy-safe downloadable diagnostics.
+- Local Home Assistant brand icon.
+- HACS-compatible repository structure and validation workflows.
 
 ### Changed
 
-- Repository documentation rewritten for installation, compatibility,
-  diagnostics, and known limitations.
-- BLE session/callback counters moved from normal entity attributes into the
-  downloadable diagnostic report.
+- BLE reconnect lifecycle now uses one client and one notification callback per
+  session.
+- Measurements that begin before reconnect/bootstrap reaches `ready` are
+  ignored as a complete cycle.
+- Normal disconnects, unknown users, and incomplete measurements are logged as
+  expected operating conditions rather than persistent integration errors.
+- BLE session/callback counters are available in diagnostics instead of normal
+  entity attributes.
+
+### Verified
+
+- `YUNMAI-SIGNAL-CW`
+- Home Assistant OS 18.2
+- Home Assistant Core 2026.7.4
+- Raspberry Pi 4 with a local Bluetooth adapter
+- Manual installation and HACS custom-repository installation
+- Reconnect after scale power loss
+- Multiple configured profiles
 
 ## 0.3.14-test
 
