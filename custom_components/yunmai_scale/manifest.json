@@ -1,21 +1,6 @@
 {
   "domain": "yunmai_scale",
   "name": "Yunmai Scale",
-  "version": "0.3.11-test",
-  "codeowners": [
-    "@Taxom"
-  ],
-  "config_flow": true,
-  "dependencies": [
-    "bluetooth_adapters"
-  ],
-  "documentation": "https://github.com/Taxom/home-assistant-yunmai-scale",
-  "issue_tracker": "https://github.com/Taxom/home-assistant-yunmai-scale/issues",
-  "integration_type": "device",
-  "iot_class": "local_push",
-  "requirements": [
-    "bleak-retry-connector==4.6.1"
-  ],
   "bluetooth": [
     {
       "local_name": "YUNMAI-SIGNAL*",
@@ -37,5 +22,20 @@
       "local_name": "YUNMAI-ISSE*",
       "connectable": true
     }
-  ]
+  ],
+  "codeowners": [
+    "@Taxom"
+  ],
+  "config_flow": true,
+  "dependencies": [
+    "bluetooth_adapters"
+  ],
+  "documentation": "https://github.com/Taxom/home-assistant-yunmai-scale",
+  "integration_type": "device",
+  "iot_class": "local_push",
+  "issue_tracker": "https://github.com/Taxom/home-assistant-yunmai-scale/issues",
+  "requirements": [
+    "bleak-retry-connector==4.6.1"
+  ],
+  "version": "0.3.11-test"
 }
