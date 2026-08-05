@@ -1,0 +1,15 @@
+name: Feature request
+description: Suggest a focused improvement
+title: "[Feature]: "
+labels: [enhancement]
+body:
+  - type: textarea
+    attributes:
+      label: Proposed improvement
+      description: Describe the use case and expected behavior.
+    validations:
+      required: true
+  - type: textarea
+    attributes:
+      label: Hardware or protocol evidence
+      description: For new scale models or fields, include non-sensitive captures or documentation.
