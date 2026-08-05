@@ -1,0 +1,152 @@
+{
+  "title": "Yunmai Scale",
+  "config": {
+    "step": {
+      "user": {
+        "title": "Select Yunmai scale",
+        "description": "Wake the scale before opening this form. If no device is listed, enter its Bluetooth MAC address.",
+        "data": {
+          "address": "Bluetooth address"
+        }
+      },
+      "bluetooth_confirm": {
+        "title": "Set up {name}",
+        "description": "Configure this discovered Yunmai scale?"
+      },
+      "profile": {
+        "title": "Recognition profile {number} of up to {maximum}",
+        "description": "The integration recognizes the nearest profile from the live weight, then sends it to the scale before the final measurement. Age is estimated automatically from the birth year.",
+        "data": {
+          "profile_name": "Name",
+          "height_cm": "Height (cm)",
+          "sex": "Sex used by the scale algorithm",
+          "reference_weight": "Current reference weight (kg)",
+          "activity": "Athletic / extreme activity mode",
+          "birth_year": "Birth year"
+        }
+      },
+      "profile_saved": {
+        "title": "Profile saved",
+        "description": "{name} was saved. {count} profile(s) configured.",
+        "menu_options": {
+          "add_profile": "Add another profile",
+          "finish_setup": "Finish setup"
+        }
+      }
+    },
+    "error": {
+      "name_required": "A name is required",
+      "duplicate_name": "Profile names must be unique",
+      "invalid_birth_year": "Enter a birth year corresponding to an age from 10 to 120"
+    },
+    "abort": {
+      "already_configured": "This scale is already configured",
+      "not_supported": "This Bluetooth device is not a supported Yunmai scale"
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Yunmai Scale options",
+        "menu_options": {
+          "bluetooth_power": "Bluetooth power optimization",
+          "recognition": "Recognition thresholds",
+          "profiles": "Manage user profiles"
+        }
+      },
+      "recognition": {
+        "title": "Recognition thresholds",
+        "description": "Conservative settings reduce incorrect assignments. The relative difference is a fraction: 0.10 means ±10%.",
+        "data": {
+          "max_relative_difference": "Maximum relative difference",
+          "min_second_best_margin_kg": "Minimum lead over second profile (kg)",
+          "stable_frames": "Required consecutive frames",
+          "max_stable_spread_kg": "Maximum spread in the frame window (kg)"
+        }
+      },
+      "bluetooth_power": {
+        "title": "Bluetooth power optimization",
+        "description": "Experimental local-BlueZ setting scoped only to this scale address. The maximum-tested preset is recommended for this scale. Choosing Custom opens a second form. Changes reload this integration and are applied after every local connection; Bluetooth proxy connections are unchanged.",
+        "data": {
+          "ble_power_mode": "Power-saving mode"
+        }
+      },
+      "bluetooth_power_custom": {
+        "title": "Custom Bluetooth power parameters",
+        "description": "Advanced experimental settings. The base interval must be a multiple of 1.25 ms. The supervision timeout must be greater than 2 × interval × (latency + 1). Invalid combinations are rejected before saving.",
+        "data": {
+          "ble_power_interval_ms": "Base connection interval (ms)",
+          "ble_power_latency": "Peripheral latency",
+          "ble_power_supervision_timeout_s": "Supervision timeout (s)"
+        },
+        "data_description": {
+          "ble_power_interval_ms": "The shortest interval used when the scale has data to send.",
+          "ble_power_latency": "How many consecutive connection events the scale may skip while idle.",
+          "ble_power_supervision_timeout_s": "How long the controller tolerates missed events before disconnecting."
+        }
+      },
+      "profiles": {
+        "title": "User profiles",
+        "description": "{count} of {maximum} profiles are configured. Adding, editing, or deleting a profile preserves every other profile.",
+        "menu_options": {
+          "profiles_add": "Add profile",
+          "profiles_edit_select": "Edit profile",
+          "profiles_delete_select": "Delete profile",
+          "back": "Back"
+        }
+      },
+      "profiles_add": {
+        "title": "Add profile {number} of up to {maximum}",
+        "description": "This adds one profile without changing existing profiles. Age is estimated automatically from the birth year.",
+        "data": {
+          "profile_name": "Name",
+          "height_cm": "Height (cm)",
+          "sex": "Sex used by the scale algorithm",
+          "reference_weight": "Current reference weight (kg)",
+          "activity": "Athletic / extreme activity mode",
+          "birth_year": "Birth year"
+        }
+      },
+      "profiles_edit_select": {
+        "title": "Select profile to edit",
+        "description": "The profile UID is preserved so existing entities and stored measurements remain associated with the same user.",
+        "data": {
+          "profile_uid": "Profile"
+        }
+      },
+      "profiles_edit": {
+        "title": "Edit {name}",
+        "description": "Only this profile will be changed. Its stable Yunmai user ID is preserved.",
+        "data": {
+          "profile_name": "Name",
+          "height_cm": "Height (cm)",
+          "sex": "Sex used by the scale algorithm",
+          "reference_weight": "Current reference weight (kg)",
+          "activity": "Athletic / extreme activity mode",
+          "birth_year": "Birth year"
+        }
+      },
+      "profiles_delete_select": {
+        "title": "Select profile to delete",
+        "description": "At least one profile must remain configured.",
+        "data": {
+          "profile_uid": "Profile"
+        }
+      },
+      "profiles_delete_confirm": {
+        "title": "Delete {name}?",
+        "description": "Delete profile {name}, currently referenced at {weight} kg? This does not delete other profiles."
+      }
+    },
+    "error": {
+      "name_required": "A name is required",
+      "duplicate_name": "Profile names must be unique",
+      "invalid_birth_year": "Enter a birth year corresponding to an age from 10 to 120",
+      "invalid_ble_parameters": "Enter valid Bluetooth power parameters",
+      "invalid_ble_interval": "Enter 7.5–4000 ms in exact 1.25 ms increments",
+      "invalid_ble_latency": "Enter a peripheral latency from 0 to 499",
+      "invalid_ble_timeout": "Enter a supervision timeout from 0.1 to 32 seconds",
+      "ble_timeout_too_short": "The supervision timeout must be greater than 2 × interval × (latency + 1)"
+    }
+  }
+}
