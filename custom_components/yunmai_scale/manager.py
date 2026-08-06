@@ -7,7 +7,8 @@ from collections import deque
 from datetime import UTC, datetime
 import logging
 import re
-from statistics import median
+from statistics import mean, median
+import time
 from typing import Any
 
 from bleak.exc import BleakError
@@ -88,6 +89,7 @@ class YunmaiScaleManager:
         self.profiles = profiles
         self.profiles_by_uid = {profile.uid: profile for profile in profiles}
         self.signal = f"{DOMAIN}_{entry.entry_id}_update"
+        self.advertisement_signal = f"{self.signal}_advertisement"
 
         self.measurements: dict[int, YunmaiMeasurement] = {}
         self.last_user_uid: int | None = None
@@ -104,6 +106,10 @@ class YunmaiScaleManager:
         self._client: BleakClientWithServiceCache | None = None
         self._stop_event = asyncio.Event()
         self._advertisement_event = asyncio.Event()
+        self._advertisement_count = 0
+        self._last_advertisement_monotonic: float | None = None
+        self._last_advertisement_rssi_dbm: int | None = None
+        self._recent_rssi_dbm: deque[int] = deque(maxlen=20)
         self._connection_generation = 0
         self._active_generation: int | None = None
         self._notification_callback_sequence = 0
@@ -113,6 +119,38 @@ class YunmaiScaleManager:
         self.ble_power_status = "pending"
         self.ble_power_details: dict[str, Any] = {}
 
+
+    @property
+    def last_advertisement_rssi_dbm(self) -> int | None:
+        """Return RSSI from the most recent scale advertisement."""
+        return self._last_advertisement_rssi_dbm
+
+    @property
+    def last_advertisement_age_seconds(self) -> float | None:
+        """Return the age of the most recent advertisement."""
+        if self._last_advertisement_monotonic is None:
+            return None
+        return round(
+            max(0.0, time.monotonic() - self._last_advertisement_monotonic),
+            1,
+        )
+
+    def _advertisement_diagnostics(self) -> dict[str, Any]:
+        """Return short-lived advertisement statistics for diagnostics."""
+        samples = list(self._recent_rssi_dbm)
+        return {
+            "last_rssi_dbm": self.last_advertisement_rssi_dbm,
+            "last_advertisement_age_seconds": (
+                self.last_advertisement_age_seconds
+            ),
+            "advertisement_count": self._advertisement_count,
+            "recent_sample_count": len(samples),
+            "recent_min_rssi_dbm": min(samples) if samples else None,
+            "recent_max_rssi_dbm": max(samples) if samples else None,
+            "recent_average_rssi_dbm": (
+                round(mean(samples), 1) if samples else None
+            ),
+        }
 
     @property
     def diagnostics(self) -> dict[str, Any]:
@@ -146,6 +184,7 @@ class YunmaiScaleManager:
                 "notification_session_id": self.notification_session_id,
                 "notification_callback_id": self.notification_callback_id,
                 "notification_count": self.notification_count,
+                "advertisement": self._advertisement_diagnostics(),
             },
         }
 
@@ -269,7 +308,7 @@ class YunmaiScaleManager:
         self._unsubscribe = bluetooth.async_register_callback(
             self.hass,
             self._async_advertisement,
-            {"address": self.address},
+            {"address": self.address, "connectable": True},
             bluetooth.BluetoothScanningMode.ACTIVE,
         )
 
@@ -318,15 +357,27 @@ class YunmaiScaleManager:
         service_info: bluetooth.BluetoothServiceInfoBleak,
         change: bluetooth.BluetoothChange,
     ) -> None:
-        """Wake a reconnect attempt when the scale is observed."""
+        """Record signal strength and wake reconnect backoff."""
+        rssi = getattr(service_info, "rssi", None)
+        self._advertisement_count += 1
+        self._last_advertisement_monotonic = time.monotonic()
+        if isinstance(rssi, (int, float)):
+            self._last_advertisement_rssi_dbm = round(rssi)
+            self._recent_rssi_dbm.append(self._last_advertisement_rssi_dbm)
+            async_dispatcher_send(self.hass, self.advertisement_signal)
+
         _LOGGER.debug(
             "Yunmai advertisement: change=%s rssi=%s source=%s status=%s",
             change,
-            getattr(service_info, "rssi", None),
+            rssi,
             getattr(service_info, "source", None),
             self.status,
         )
-        self._advertisement_event.set()
+
+        # A fresh connectable advertisement means the scale is reachable now.
+        # Wake a reconnect delay immediately instead of waiting up to 30 s.
+        if getattr(service_info, "connectable", None) is not False:
+            self._advertisement_event.set()
 
     def get_measurement(self, uid: int) -> YunmaiMeasurement | None:
         """Return the latest measurement for one profile."""
@@ -625,6 +676,34 @@ class YunmaiScaleManager:
             applied.supervision_timeout_ms,
         )
 
+    async def _async_wait_for_reconnect_trigger(self, delay: float) -> str:
+        """Wait for timeout, shutdown, or a fresh scale advertisement."""
+        self._advertisement_event.clear()
+        if self._stop_event.is_set():
+            return "stopped"
+
+        stop_task = asyncio.create_task(self._stop_event.wait())
+        advertisement_task = asyncio.create_task(
+            self._advertisement_event.wait()
+        )
+        tasks = {stop_task, advertisement_task}
+        try:
+            done, pending = await asyncio.wait(
+                tasks,
+                timeout=delay,
+                return_when=asyncio.FIRST_COMPLETED,
+            )
+            if not done:
+                return "timeout"
+            if stop_task in done and stop_task.result():
+                return "stopped"
+            return "advertisement"
+        finally:
+            for task in tasks:
+                if not task.done():
+                    task.cancel()
+            await asyncio.gather(*tasks, return_exceptions=True)
+
     async def _async_connection_loop(self) -> None:
         """Maintain one connection and isolate callbacks by session."""
         attempt = 0
@@ -706,6 +785,15 @@ class YunmaiScaleManager:
                 self._set_status("reconnecting", error_text)
             finally:
                 await self._async_cleanup_client(client, generation=generation)
+                if generation is not None:
+                    # Home Assistant deduplicates identical advertisements.
+                    # Clear only the advertisement cache after a GATT session
+                    # ends so the scale's next wake-up packet reaches our
+                    # callback and can interrupt reconnect backoff.
+                    bluetooth.async_clear_advertisement_history(
+                        self.hass,
+                        self.address,
+                    )
                 if generation is not None and self._active_generation == generation:
                     self._active_generation = None
                 if self._client is client:
@@ -719,10 +807,13 @@ class YunmaiScaleManager:
             ]
             attempt += 1
             _LOGGER.debug("Retrying Yunmai connection in %.1f seconds", delay)
-            try:
-                await asyncio.wait_for(self._stop_event.wait(), timeout=delay)
-            except asyncio.TimeoutError:
-                pass
+            reconnect_trigger = await self._async_wait_for_reconnect_trigger(delay)
+            if reconnect_trigger == "advertisement":
+                _LOGGER.debug(
+                    "Fresh Yunmai advertisement interrupted reconnect backoff"
+                )
+            elif reconnect_trigger == "stopped":
+                break
 
     async def _async_cleanup_client(
         self, client: Any, *, generation: int | None

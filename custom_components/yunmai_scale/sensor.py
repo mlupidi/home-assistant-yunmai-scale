@@ -10,7 +10,11 @@ from homeassistant.components.sensor import (
     SensorEntity,
     SensorStateClass,
 )
-from homeassistant.const import PERCENTAGE, UnitOfMass
+from homeassistant.const import (
+    PERCENTAGE,
+    SIGNAL_STRENGTH_DECIBELS_MILLIWATT,
+    UnitOfMass,
+)
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.dispatcher import async_dispatcher_connect
@@ -27,6 +31,7 @@ async def async_setup_entry(hass: HomeAssistant, entry, async_add_entities) -> N
     entities: list[SensorEntity] = [
         YunmaiStatusSensor(manager),
         YunmaiLastUserSensor(manager),
+        YunmaiBluetoothSignalSensor(manager),
     ]
 
     for profile in manager.profiles:
@@ -43,8 +48,14 @@ class YunmaiBaseSensor(SensorEntity):
 
     _attr_has_entity_name = True
 
-    def __init__(self, manager: YunmaiScaleManager) -> None:
+    def __init__(
+        self,
+        manager: YunmaiScaleManager,
+        *,
+        update_signal: str | None = None,
+    ) -> None:
         self.manager = manager
+        self._update_signal = update_signal or manager.signal
 
     @property
     def device_info(self) -> DeviceInfo:
@@ -61,7 +72,7 @@ class YunmaiBaseSensor(SensorEntity):
         self.async_on_remove(
             async_dispatcher_connect(
                 self.hass,
-                self.manager.signal,
+                self._update_signal,
                 self._handle_manager_update,
             )
         )
@@ -117,6 +128,29 @@ class YunmaiLastUserSensor(YunmaiBaseSensor):
             return None
         profile = self.manager.profiles_by_uid.get(self.manager.last_user_uid)
         return profile.name if profile is not None else None
+
+
+class YunmaiBluetoothSignalSensor(YunmaiBaseSensor):
+    """RSSI from the most recent Bluetooth advertisement."""
+
+    _attr_name = "Bluetooth signal strength"
+    _attr_device_class = SensorDeviceClass.SIGNAL_STRENGTH
+    _attr_state_class = SensorStateClass.MEASUREMENT
+    _attr_native_unit_of_measurement = SIGNAL_STRENGTH_DECIBELS_MILLIWATT
+    _attr_icon = "mdi:signal"
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+
+    def __init__(self, manager: YunmaiScaleManager) -> None:
+        super().__init__(
+            manager,
+            update_signal=manager.advertisement_signal,
+        )
+        self._attr_unique_id = f"{manager.address}_rssi"
+
+    @property
+    def native_value(self) -> int | None:
+        """Return the RSSI of the latest advertisement."""
+        return self.manager.last_advertisement_rssi_dbm
 
 
 class YunmaiProfileSensor(YunmaiBaseSensor):

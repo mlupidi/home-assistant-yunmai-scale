@@ -20,6 +20,7 @@ final measurement without using the Yunmai cloud.
 - Automatic removal of orphaned entities when a profile is deleted.
 - English and Russian interface translations.
 - Privacy-safe downloadable diagnostics.
+- Diagnostic Bluetooth signal-strength sensor with history/graph support.
 - Optional per-device BLE connection-parameter optimization for local BlueZ
   adapters.
 
@@ -124,7 +125,12 @@ For each profile:
 Shared entities:
 
 - last recognized user;
-- session status.
+- session status;
+- Bluetooth signal strength (diagnostic).
+
+The signal-strength entity records RSSI from the latest Bluetooth
+advertisement. It may remain unchanged while a persistent connection is
+active because connected scales do not necessarily continue advertising.
 
 The body-fat value is calculated by the scale firmware. This integration does
 not claim medical accuracy.
@@ -132,8 +138,10 @@ not claim medical accuracy.
 ## Bluetooth behavior
 
 The integration keeps one BLE connection open and reconnects after an actual
-disconnect. A scale normally accepts only one active BLE client, so close or
-disable other applications and Home Assistant instances that may connect to it.
+disconnect. A fresh connectable advertisement interrupts reconnect backoff,
+so a scale that has just become reachable does not wait for the next scheduled
+retry. A scale normally accepts only one active BLE client, so close or disable
+other applications and Home Assistant instances that may connect to it.
 
 ### Power optimization
 
@@ -172,7 +180,8 @@ disconnecting the scale.
 
 Use **Download diagnostics** from the integration menu when reporting a
 problem. The report includes connection state, recognition settings, BLE power
-status, session/callback counters, and profile/measurement counts.
+status, session/callback counters, profile/measurement counts, and recent
+advertisement RSSI statistics.
 
 The report redacts the Bluetooth address and profile definitions. It excludes
 profile names, birth information, reference weights, and actual body

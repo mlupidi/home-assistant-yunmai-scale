@@ -4,6 +4,22 @@ All notable changes to this project are documented here.
 
 ## Unreleased
 
+## 0.4.1 - 2026-08-06
+
+### Added
+
+- Diagnostic Bluetooth signal-strength sensor using the RSSI from the latest
+  scale advertisement, allowing Home Assistant history graphs.
+- Recent advertisement RSSI statistics in downloadable diagnostics: last,
+  minimum, maximum, average, sample count, total advertisement count, and age
+  of the last advertisement.
+
+### Changed
+
+- A fresh connectable scale advertisement now interrupts reconnect backoff,
+  including the 30-second maximum delay, so reconnection starts immediately
+  when the scale becomes reachable.
+
 ## 0.4.0 - 2026-08-05
 
 First public release.
