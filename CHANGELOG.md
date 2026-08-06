@@ -4,6 +4,19 @@ All notable changes to this project are documented here.
 
 ## Unreleased
 
+## 0.4.2 - 2026-08-06
+
+### Fixed
+
+- Removed the custom integration's exact `bleak-retry-connector` requirement.
+  Home Assistant Core already provides this library through the built-in
+  Bluetooth integration.
+- Declared the built-in `bluetooth` integration as a dependency so Yunmai Scale
+  uses the compatible library version bundled with the installed Home
+  Assistant release.
+- Fixed startup failure after Home Assistant updated
+  `bleak-retry-connector` from 4.6.1 to 4.6.3.
+
 ## 0.4.1 - 2026-08-06
 
 ### Added
