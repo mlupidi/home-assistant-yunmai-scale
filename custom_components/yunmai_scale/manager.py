@@ -1353,6 +1353,14 @@ class YunmaiScaleManager:
                     "the final weight %.2f kg",
                     frame.weight_kg,
                 )
+                # Let automations react (e.g. announce an unknown person).
+                self.hass.bus.async_fire(
+                    f"{DOMAIN}_unrecognized_measurement",
+                    {
+                        "weight_kg": frame.weight_kg,
+                        "fat_percent": frame.fat_percent,
+                    },
+                )
                 _reset_cycle()
                 ignore_live_until = now + POST_FINAL_GUARD_SECONDS
                 idle_deadline = _arm_idle(ON_DEMAND_POST_FINAL_SECONDS)
