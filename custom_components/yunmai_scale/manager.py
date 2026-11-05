@@ -58,6 +58,10 @@ from .const import (
     MAGIC_START,
     MEASUREMENT_TIMEOUT_SECONDS,
     MIN_HUMAN_WEIGHT_KG,
+    ON_DEMAND_CONNECTION,
+    ON_DEMAND_COOLDOWN_SECONDS,
+    ON_DEMAND_IDLE_SECONDS,
+    ON_DEMAND_POST_FINAL_SECONDS,
     POST_FINAL_GUARD_SECONDS,
     RECONNECT_DELAYS_SECONDS,
     STORAGE_KEY_PREFIX,
@@ -676,8 +680,11 @@ class YunmaiScaleManager:
             applied.supervision_timeout_ms,
         )
 
-    async def _async_wait_for_reconnect_trigger(self, delay: float) -> str:
-        """Wait for timeout, shutdown, or a fresh scale advertisement."""
+    async def _async_wait_for_reconnect_trigger(self, delay: float | None) -> str:
+        """Wait for timeout, shutdown, or a fresh scale advertisement.
+
+        ``delay=None`` waits without a timeout.
+        """
         self._advertisement_event.clear()
         if self._stop_event.is_set():
             return "stopped"
@@ -704,6 +711,25 @@ class YunmaiScaleManager:
                     task.cancel()
             await asyncio.gather(*tasks, return_exceptions=True)
 
+    async def _async_wait_for_idle_wakeup(self) -> str:
+        """Stay disconnected until the scale wakes up and advertises again.
+
+        A short cooldown first ignores the advertisements the scale emits
+        right after we disconnect, so we do not reconnect and keep it awake.
+        """
+        try:
+            await asyncio.wait_for(
+                self._stop_event.wait(), timeout=ON_DEMAND_COOLDOWN_SECONDS
+            )
+            return "stopped"
+        except asyncio.TimeoutError:
+            pass
+
+        # Drop Home Assistant's duplicate-advertisement state so the next real
+        # wake-up packet reaches our callback.
+        bluetooth.async_clear_advertisement_history(self.hass, self.address)
+        return await self._async_wait_for_reconnect_trigger(None)
+
     async def _async_connection_loop(self) -> None:
         """Maintain one connection and isolate callbacks by session."""
         attempt = 0
@@ -713,6 +739,7 @@ class YunmaiScaleManager:
             generation: int | None = None
             disconnected_event: asyncio.Event | None = None
             adapter_index: int | None = None
+            idle_disconnect = False
             try:
                 ble_device = await self._async_wait_for_ble_device()
                 adapter_index = self._bluez_adapter_index(ble_device)
@@ -765,13 +792,13 @@ class YunmaiScaleManager:
                     raise BleakError("Bleak returned a disconnected Yunmai client")
 
                 attempt = 0
-                await self._async_connected_loop(
+                idle_disconnect = await self._async_connected_loop(
                     client,
                     generation=generation,
                     disconnected_event=disconnected_event,
                     adapter_index=adapter_index,
                 )
-                if not self._stop_event.is_set():
+                if not idle_disconnect and not self._stop_event.is_set():
                     raise BleakError("Yunmai connection ended unexpectedly")
 
             except asyncio.CancelledError:
@@ -801,6 +828,17 @@ class YunmaiScaleManager:
 
             if self._stop_event.is_set():
                 break
+
+            if idle_disconnect:
+                # Deliberate on-demand disconnect: no backoff retries. Wait for
+                # the scale to wake up and advertise before connecting again.
+                attempt = 0
+                self._set_status("idle")
+                _LOGGER.debug("Yunmai idle; waiting for the next wake-up")
+                if await self._async_wait_for_idle_wakeup() == "stopped":
+                    break
+                _LOGGER.debug("Yunmai wake-up advertisement received")
+                continue
 
             delay = RECONNECT_DELAYS_SECONDS[
                 min(attempt, len(RECONNECT_DELAYS_SECONDS) - 1)
@@ -873,8 +911,12 @@ class YunmaiScaleManager:
         generation: int,
         disconnected_event: asyncio.Event,
         adapter_index: int | None,
-    ) -> None:
-        """Subscribe once, bootstrap once, then process repeated measurements."""
+    ) -> bool:
+        """Subscribe once, bootstrap once, then process repeated measurements.
+
+        Returns True when the session ended on purpose because the scale was
+        idle (on-demand mode), and False when the manager is stopping.
+        """
         notification_queue: asyncio.Queue[tuple[int, bytes]] = asyncio.Queue()
         self._notification_callback_sequence += 1
         callback_id = self._notification_callback_sequence
@@ -987,6 +1029,14 @@ class YunmaiScaleManager:
 
         loop = asyncio.get_running_loop()
 
+        def _arm_idle(seconds: float) -> float | None:
+            """Return the idle-disconnect deadline, or None if persistent."""
+            if not ON_DEMAND_CONNECTION:
+                return None
+            return loop.time() + seconds
+
+        idle_deadline = _arm_idle(ON_DEMAND_IDLE_SECONDS)
+
         while not self._stop_event.is_set():
             if (
                 disconnected_event.is_set()
@@ -1005,6 +1055,18 @@ class YunmaiScaleManager:
                 _reset_cycle()
                 reject_cycle_until_final = False
                 self._set_status("ready")
+                idle_deadline = _arm_idle(ON_DEMAND_IDLE_SECONDS)
+
+            if (
+                idle_deadline is not None
+                and cycle_started_at is None
+                and notification_queue.empty()
+                and now >= idle_deadline
+            ):
+                _LOGGER.info(
+                    "Yunmai scale idle; disconnecting so it can sleep"
+                )
+                return True
 
             try:
                 frame_count, raw = await asyncio.wait_for(
@@ -1047,6 +1109,7 @@ class YunmaiScaleManager:
                     reject_cycle_until_final = False
                     _reset_cycle()
                     ignore_live_until = now + POST_FINAL_GUARD_SECONDS
+                    idle_deadline = _arm_idle(ON_DEMAND_POST_FINAL_SECONDS)
                     self._set_status("ready")
                     continue
 
@@ -1121,6 +1184,7 @@ class YunmaiScaleManager:
                 )
                 _reset_cycle()
                 ignore_live_until = now + POST_FINAL_GUARD_SECONDS
+                idle_deadline = _arm_idle(ON_DEMAND_POST_FINAL_SECONDS)
                 self._set_status("ready")
                 continue
 
@@ -1134,6 +1198,7 @@ class YunmaiScaleManager:
                 self.last_error = "Final user ID did not match selected profile"
                 _reset_cycle()
                 ignore_live_until = now + POST_FINAL_GUARD_SECONDS
+                idle_deadline = _arm_idle(ON_DEMAND_POST_FINAL_SECONDS)
                 self._set_status("ready", self.last_error)
                 continue
 
@@ -1147,4 +1212,7 @@ class YunmaiScaleManager:
             )
             _reset_cycle()
             ignore_live_until = now + POST_FINAL_GUARD_SECONDS
+            idle_deadline = _arm_idle(ON_DEMAND_POST_FINAL_SECONDS)
             self._set_status("ready")
+
+        return False

@@ -76,6 +76,15 @@ BLE_DEVICE_WAIT_SECONDS = 30.0
 RECONNECT_DELAYS_SECONDS = (1.0, 2.0, 5.0, 10.0, 30.0)
 FALLBACK_AVAILABILITY_SECONDS = 12.0
 
+# On-demand connection: instead of holding the BLE link open forever (which
+# keeps the scale awake and drains its battery), disconnect when nobody is
+# using the scale and reconnect only when its next wake-up advertisement is
+# seen. Set ON_DEMAND_CONNECTION to False to restore the persistent behavior.
+ON_DEMAND_CONNECTION = True
+ON_DEMAND_IDLE_SECONDS = 20.0  # connected, but nobody steps on the scale
+ON_DEMAND_POST_FINAL_SECONDS = 8.0  # grace time after a final measurement
+ON_DEMAND_COOLDOWN_SECONDS = 45.0  # ignore wake-ups right after disconnecting
+
 SUPPORTED_NAME_PREFIXES = (
     "YUNMAI-SIGNAL",
     "YUNMAI-ISM",
