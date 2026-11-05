@@ -113,6 +113,7 @@ class YunmaiScaleManager:
         self._advertisement_count = 0
         self._last_advertisement_monotonic: float | None = None
         self._last_advertisement_rssi_dbm: int | None = None
+        self._last_advertisement_payload: tuple[Any, ...] | None = None
         self._recent_rssi_dbm: deque[int] = deque(maxlen=20)
         self._connection_generation = 0
         self._active_generation: int | None = None
@@ -377,6 +378,47 @@ class YunmaiScaleManager:
             getattr(service_info, "source", None),
             self.status,
         )
+
+        # TEMPORARY DIAGNOSTIC: log every change in the advertisement payload
+        # so we can see what differs when someone steps on the scale.
+        manufacturer_data = tuple(
+            sorted(
+                (key, bytes(value).hex())
+                for key, value in (
+                    getattr(service_info, "manufacturer_data", None) or {}
+                ).items()
+            )
+        )
+        service_data = tuple(
+            sorted(
+                (key, bytes(value).hex())
+                for key, value in (
+                    getattr(service_info, "service_data", None) or {}
+                ).items()
+            )
+        )
+        service_uuids = tuple(
+            sorted(getattr(service_info, "service_uuids", None) or [])
+        )
+        payload = (
+            manufacturer_data,
+            service_data,
+            service_uuids,
+            getattr(service_info, "name", None),
+        )
+        if payload != self._last_advertisement_payload:
+            self._last_advertisement_payload = payload
+            _LOGGER.warning(
+                "Yunmai ADV payload changed: mfr=%s svc=%s uuids=%s name=%s "
+                "rssi=%s source=%s status=%s",
+                manufacturer_data,
+                service_data,
+                service_uuids,
+                payload[3],
+                rssi,
+                getattr(service_info, "source", None),
+                self.status,
+            )
 
         # A fresh connectable advertisement means the scale is reachable now.
         # Wake a reconnect delay immediately instead of waiting up to 30 s.
