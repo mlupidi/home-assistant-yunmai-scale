@@ -82,12 +82,28 @@ FALLBACK_AVAILABILITY_SECONDS = 12.0
 # only when it starts advertising again after that silence. If the scale never
 # goes quiet, the integration falls back to the persistent connection.
 # Set ON_DEMAND_CONNECTION to False to always keep the persistent behavior.
-ON_DEMAND_CONNECTION = True
+# Disabled: this scale advertises continuously, so it never signals a step-on;
+# battery is saved instead by low-power connection parameters (also through
+# an ESPHome proxy, see PROXY_POWER_ENTITY_SUFFIXES).
+ON_DEMAND_CONNECTION = False
 ON_DEMAND_IDLE_SECONDS = 20.0  # connected, but nobody steps on the scale
 ON_DEMAND_POST_FINAL_SECONDS = 60.0  # stay connected after a final measurement
 ON_DEMAND_PROBE_SECONDS = 6.0  # one "is it still advertising?" check
 ON_DEMAND_SILENT_PROBES = 2  # consecutive silent checks that mean "asleep"
 ON_DEMAND_SLEEP_WAIT_SECONDS = 300.0  # give up waiting for sleep after this
+
+# ESPHome Bluetooth proxies force an 8.75-11.25 ms connection interval with no
+# peripheral latency, which drains the scale battery in days.  A proxy that
+# carries the Yunmai low-power YAML block exposes these number entities; the
+# integration writes the configured BLE power parameters to them (controller
+# units: interval x1.25 ms, latency in events, timeout x10 ms; interval 0 means
+# "leave the proxy defaults").  Matched against the ESPHome unique_id suffix.
+PROXY_POWER_ENTITY_SUFFIXES = {
+    "interval": "/number/Yunmai intervallo BLE",
+    "latency": "/number/Yunmai latency BLE",
+    "timeout": "/number/Yunmai timeout BLE",
+}
+PROXY_POWER_STATUS_SUFFIX = "/text_sensor/Yunmai connessione BLE"
 
 SUPPORTED_NAME_PREFIXES = (
     "YUNMAI-SIGNAL",

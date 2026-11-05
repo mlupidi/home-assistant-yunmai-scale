@@ -20,6 +20,7 @@ from bleak_retry_connector import (
 from homeassistant.components import bluetooth
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, callback
+from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.dispatcher import async_dispatcher_send
 from homeassistant.helpers.storage import Store
 from homeassistant.util import dt as dt_util
@@ -65,6 +66,8 @@ from .const import (
     ON_DEMAND_SILENT_PROBES,
     ON_DEMAND_SLEEP_WAIT_SECONDS,
     POST_FINAL_GUARD_SECONDS,
+    PROXY_POWER_ENTITY_SUFFIXES,
+    PROXY_POWER_STATUS_SUFFIX,
     RECONNECT_DELAYS_SECONDS,
     STORAGE_KEY_PREFIX,
     STORAGE_VERSION,
@@ -590,6 +593,136 @@ class YunmaiScaleManager:
         raise asyncio.CancelledError
 
     @staticmethod
+    def _connected_route(client: Any) -> tuple[bool, int | None, str | None]:
+        """Return (known, hci index or None, scanner source) actually used.
+
+        Home Assistant's Bluetooth wrapper picks the best connection path by
+        itself (often an ESPHome proxy), regardless of which scanner produced
+        the BLEDevice passed to establish_connection.
+        """
+        scanner = getattr(client, "_connected_scanner", None)
+        if scanner is None:
+            return False, None, None
+        source = getattr(scanner, "source", None)
+        adapter = getattr(scanner, "adapter", None)
+        if isinstance(adapter, str):
+            match = re.fullmatch(r"hci(\d+)", adapter)
+            if match:
+                return True, int(match.group(1)), source
+        return True, None, source
+
+    def _proxy_power_entities(self) -> dict[str, list[str]]:
+        """Find the Yunmai low-power number entities exposed by ESPHome proxies."""
+        registry = er.async_get(self.hass)
+        found: dict[str, list[str]] = {key: [] for key in PROXY_POWER_ENTITY_SUFFIXES}
+        found["status"] = []
+        for entry in registry.entities.values():
+            if entry.platform != "esphome" or entry.disabled_by is not None:
+                continue
+            unique_id = str(entry.unique_id)
+            for key, suffix in PROXY_POWER_ENTITY_SUFFIXES.items():
+                if entry.domain == "number" and unique_id.endswith(suffix):
+                    found[key].append(entry.entity_id)
+            if unique_id.endswith(PROXY_POWER_STATUS_SUFFIX):
+                found["status"].append(entry.entity_id)
+        return found
+
+    async def _async_apply_proxy_power_parameters(self, client: Any) -> None:
+        """Send the configured BLE power parameters to ESPHome proxies.
+
+        A stock proxy keeps the link at 8.75-11.25 ms with no peripheral
+        latency.  A proxy flashed with the Yunmai low-power YAML block exposes
+        three number entities and applies them to the live connection.
+        Failures here must never break weighing.
+        """
+        _known, _index, source = self._connected_route(client)
+        entities = self._proxy_power_entities()
+        if not all(entities[key] for key in PROXY_POWER_ENTITY_SUFFIXES):
+            self.ble_power_status = "proxy_unsupported"
+            self.ble_power_details = {"proxy_source": source}
+            _LOGGER.warning(
+                "Yunmai connected through ESPHome proxy %s, which keeps a "
+                "fast 8.75-11.25 ms link with no latency (high battery use). "
+                "Add the Yunmai low-power block to the proxy YAML to apply "
+                "the configured BLE power mode",
+                source,
+            )
+            return
+
+        if self.ble_power_optimization_enabled:
+            interval_units, latency, timeout_units = self._ble_power_parameters()
+            wanted = {
+                # Timeout first: the proxy validates the full combination.
+                "timeout": timeout_units,
+                "latency": latency,
+                "interval": interval_units,
+            }
+        else:
+            # Interval 0 tells the proxy to leave its own defaults alone.
+            interval_units, latency, timeout_units = 0, 0, 0
+            wanted = {"interval": 0}
+        written: list[str] = []
+        try:
+            for key, value in wanted.items():
+                for entity_id in entities[key]:
+                    state = self.hass.states.get(entity_id)
+                    if state is not None and state.state not in (
+                        "unknown",
+                        "unavailable",
+                    ):
+                        try:
+                            if round(float(state.state)) == value:
+                                continue
+                        except ValueError:
+                            pass
+                    await self.hass.services.async_call(
+                        "number",
+                        "set_value",
+                        {"entity_id": entity_id, "value": value},
+                        blocking=True,
+                    )
+                    written.append(entity_id)
+        except Exception as err:  # The optimization must never break weighing.
+            self.ble_power_status = "proxy_failed"
+            self.ble_power_details = {"proxy_source": source, "error": str(err)}
+            _LOGGER.warning(
+                "Yunmai: could not send BLE power parameters to the ESPHome "
+                "proxy: %s",
+                err,
+            )
+            return
+
+        reported = None
+        if entities["status"]:
+            status_state = self.hass.states.get(entities["status"][0])
+            reported = status_state.state if status_state is not None else None
+
+        self.ble_power_status = (
+            "proxy_requested" if self.ble_power_optimization_enabled
+            else "proxy_defaults"
+        )
+        self.ble_power_details = {
+            "mode": self.ble_power_mode,
+            "proxy_source": source,
+            "interval_ms": interval_units * 1.25,
+            "latency": latency,
+            "maximum_idle_interval_ms": interval_units * 1.25 * (latency + 1),
+            "supervision_timeout_ms": timeout_units * 10,
+            "entities_updated": written,
+            "proxy_reported": reported,
+        }
+        _LOGGER.info(
+            "Yunmai BLE power parameters sent to ESPHome proxy %s: "
+            "mode=%s interval=%.2f ms latency=%d timeout=%d ms (updated: %s)",
+            source,
+            self.ble_power_mode,
+            interval_units * 1.25,
+            latency,
+            timeout_units * 10,
+            ", ".join(written) or "none, already set",
+        )
+
+    @staticmethod
     def _bluez_adapter_index(ble_device: Any) -> int | None:
         """Return hciN for a local BlueZ BLEDevice, or None for a proxy."""
         details = getattr(ble_device, "details", None)
@@ -623,12 +756,7 @@ class YunmaiScaleManager:
             return
 
         if adapter_index is None:
-            self.ble_power_status = "unsupported_adapter"
-            self.ble_power_details = {}
-            _LOGGER.info(
-                "Yunmai BLE power optimization skipped: connection is not "
-                "through a local BlueZ adapter"
-            )
+            await self._async_apply_proxy_power_parameters(client)
             return
 
         if not self._session_is_current(client, generation):
@@ -812,6 +940,19 @@ class YunmaiScaleManager:
                 self._active_generation = generation
                 if not client.is_connected:
                     raise BleakError("Bleak returned a disconnected Yunmai client")
+
+                # Use the path Home Assistant really chose (it may be an
+                # ESPHome proxy even if the BLEDevice came from hci0).
+                route_known, route_index, route_source = self._connected_route(
+                    client
+                )
+                if route_known:
+                    adapter_index = route_index
+                _LOGGER.debug(
+                    "Yunmai connected via %s (hci index %s)",
+                    route_source,
+                    adapter_index,
+                )
 
                 attempt = 0
                 idle_disconnect = await self._async_connected_loop(
