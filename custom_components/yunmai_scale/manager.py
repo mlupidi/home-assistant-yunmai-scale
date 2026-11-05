@@ -59,9 +59,11 @@ from .const import (
     MEASUREMENT_TIMEOUT_SECONDS,
     MIN_HUMAN_WEIGHT_KG,
     ON_DEMAND_CONNECTION,
-    ON_DEMAND_COOLDOWN_SECONDS,
     ON_DEMAND_IDLE_SECONDS,
     ON_DEMAND_POST_FINAL_SECONDS,
+    ON_DEMAND_PROBE_SECONDS,
+    ON_DEMAND_SILENT_PROBES,
+    ON_DEMAND_SLEEP_WAIT_SECONDS,
     POST_FINAL_GUARD_SECONDS,
     RECONNECT_DELAYS_SECONDS,
     STORAGE_KEY_PREFIX,
@@ -113,7 +115,7 @@ class YunmaiScaleManager:
         self._advertisement_count = 0
         self._last_advertisement_monotonic: float | None = None
         self._last_advertisement_rssi_dbm: int | None = None
-        self._last_advertisement_payload: tuple[Any, ...] | None = None
+        self._on_demand_disabled = False
         self._recent_rssi_dbm: deque[int] = deque(maxlen=20)
         self._connection_generation = 0
         self._active_generation: int | None = None
@@ -378,47 +380,6 @@ class YunmaiScaleManager:
             getattr(service_info, "source", None),
             self.status,
         )
-
-        # TEMPORARY DIAGNOSTIC: log every change in the advertisement payload
-        # so we can see what differs when someone steps on the scale.
-        manufacturer_data = tuple(
-            sorted(
-                (key, bytes(value).hex())
-                for key, value in (
-                    getattr(service_info, "manufacturer_data", None) or {}
-                ).items()
-            )
-        )
-        service_data = tuple(
-            sorted(
-                (key, bytes(value).hex())
-                for key, value in (
-                    getattr(service_info, "service_data", None) or {}
-                ).items()
-            )
-        )
-        service_uuids = tuple(
-            sorted(getattr(service_info, "service_uuids", None) or [])
-        )
-        payload = (
-            manufacturer_data,
-            service_data,
-            service_uuids,
-            getattr(service_info, "name", None),
-        )
-        if payload != self._last_advertisement_payload:
-            self._last_advertisement_payload = payload
-            _LOGGER.warning(
-                "Yunmai ADV payload changed: mfr=%s svc=%s uuids=%s name=%s "
-                "rssi=%s source=%s status=%s",
-                manufacturer_data,
-                service_data,
-                service_uuids,
-                payload[3],
-                rssi,
-                getattr(service_info, "source", None),
-                self.status,
-            )
 
         # A fresh connectable advertisement means the scale is reachable now.
         # Wake a reconnect delay immediately instead of waiting up to 30 s.
@@ -754,23 +715,42 @@ class YunmaiScaleManager:
             await asyncio.gather(*tasks, return_exceptions=True)
 
     async def _async_wait_for_idle_wakeup(self) -> str:
-        """Stay disconnected until the scale wakes up and advertises again.
+        """Wait for the scale to fall asleep, then for it to wake up again.
 
-        A short cooldown first ignores the advertisements the scale emits
-        right after we disconnect, so we do not reconnect and keep it awake.
+        The scale keeps advertising while it is awake, and its advertisement
+        never changes, so a wake-up can only be recognized after the scale has
+        gone quiet. Phase 1 probes until no advertisement is seen for a while
+        (the scale is asleep); phase 2 waits for the next advertisement.
+
+        Returns "stopped", "never_sleeps" (it kept advertising for too long) or
+        "wakeup".
         """
-        try:
-            await asyncio.wait_for(
-                self._stop_event.wait(), timeout=ON_DEMAND_COOLDOWN_SECONDS
-            )
-            return "stopped"
-        except asyncio.TimeoutError:
-            pass
+        deadline = time.monotonic() + ON_DEMAND_SLEEP_WAIT_SECONDS
+        quiet_probes = 0
+        while quiet_probes < ON_DEMAND_SILENT_PROBES:
+            if time.monotonic() >= deadline:
+                return "never_sleeps"
+            # Home Assistant suppresses duplicate advertisements, so clear its
+            # history first: any advertisement in the next probe window then
+            # reaches our callback and proves the scale is still awake.
+            self._advertisement_event.clear()
+            bluetooth.async_clear_advertisement_history(self.hass, self.address)
+            try:
+                await asyncio.wait_for(
+                    self._stop_event.wait(), timeout=ON_DEMAND_PROBE_SECONDS
+                )
+                return "stopped"
+            except asyncio.TimeoutError:
+                pass
+            if self._advertisement_event.is_set():
+                quiet_probes = 0
+            else:
+                quiet_probes += 1
 
-        # Drop Home Assistant's duplicate-advertisement state so the next real
-        # wake-up packet reaches our callback.
+        _LOGGER.warning("Yunmai scale is asleep; waiting for the next wake-up")
         bluetooth.async_clear_advertisement_history(self.hass, self.address)
-        return await self._async_wait_for_reconnect_trigger(None)
+        trigger = await self._async_wait_for_reconnect_trigger(None)
+        return "stopped" if trigger == "stopped" else "wakeup"
 
     async def _async_connection_loop(self) -> None:
         """Maintain one connection and isolate callbacks by session."""
@@ -872,14 +852,22 @@ class YunmaiScaleManager:
                 break
 
             if idle_disconnect:
-                # Deliberate on-demand disconnect: no backoff retries. Wait for
-                # the scale to wake up and advertise before connecting again.
+                # Deliberate on-demand disconnect: no backoff retries. Let the
+                # scale fall asleep, then wait for it to advertise again.
                 attempt = 0
                 self._set_status("idle")
-                _LOGGER.debug("Yunmai idle; waiting for the next wake-up")
-                if await self._async_wait_for_idle_wakeup() == "stopped":
+                wake_result = await self._async_wait_for_idle_wakeup()
+                if wake_result == "stopped":
                     break
-                _LOGGER.debug("Yunmai wake-up advertisement received")
+                if wake_result == "never_sleeps":
+                    _LOGGER.warning(
+                        "Yunmai scale kept advertising for %.0f s after "
+                        "disconnecting; keeping the connection open instead",
+                        ON_DEMAND_SLEEP_WAIT_SECONDS,
+                    )
+                    self._on_demand_disabled = True
+                else:
+                    _LOGGER.warning("Yunmai wake-up detected; connecting")
                 continue
 
             delay = RECONNECT_DELAYS_SECONDS[
@@ -1073,7 +1061,7 @@ class YunmaiScaleManager:
 
         def _arm_idle(seconds: float) -> float | None:
             """Return the idle-disconnect deadline, or None if persistent."""
-            if not ON_DEMAND_CONNECTION:
+            if not ON_DEMAND_CONNECTION or self._on_demand_disabled:
                 return None
             return loop.time() + seconds
 

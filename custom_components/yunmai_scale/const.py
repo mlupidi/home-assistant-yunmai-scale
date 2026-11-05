@@ -78,12 +78,16 @@ FALLBACK_AVAILABILITY_SECONDS = 12.0
 
 # On-demand connection: instead of holding the BLE link open forever (which
 # keeps the scale awake and drains its battery), disconnect when nobody is
-# using the scale and reconnect only when its next wake-up advertisement is
-# seen. Set ON_DEMAND_CONNECTION to False to restore the persistent behavior.
+# using the scale, let it fall asleep (it stops advertising), and reconnect
+# only when it starts advertising again after that silence. If the scale never
+# goes quiet, the integration falls back to the persistent connection.
+# Set ON_DEMAND_CONNECTION to False to always keep the persistent behavior.
 ON_DEMAND_CONNECTION = True
 ON_DEMAND_IDLE_SECONDS = 20.0  # connected, but nobody steps on the scale
-ON_DEMAND_POST_FINAL_SECONDS = 8.0  # grace time after a final measurement
-ON_DEMAND_COOLDOWN_SECONDS = 45.0  # ignore wake-ups right after disconnecting
+ON_DEMAND_POST_FINAL_SECONDS = 60.0  # stay connected after a final measurement
+ON_DEMAND_PROBE_SECONDS = 6.0  # one "is it still advertising?" check
+ON_DEMAND_SILENT_PROBES = 2  # consecutive silent checks that mean "asleep"
+ON_DEMAND_SLEEP_WAIT_SECONDS = 300.0  # give up waiting for sleep after this
 
 SUPPORTED_NAME_PREFIXES = (
     "YUNMAI-SIGNAL",
