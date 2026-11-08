@@ -5,7 +5,7 @@ from __future__ import annotations
 from homeassistant.const import Platform
 
 DOMAIN = "yunmai_scale"
-PLATFORMS = [Platform.SENSOR]
+PLATFORMS = [Platform.SENSOR, Platform.SWITCH]
 PROFILE_SENSOR_KINDS = ("weight", "fat", "impedance", "timestamp")
 
 CONF_DEVICE_NAME = "device_name"

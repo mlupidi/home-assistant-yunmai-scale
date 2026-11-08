@@ -104,6 +104,9 @@ class YunmaiScaleManager:
         self.last_user_uid: int | None = None
         self.status = "starting"
         self.last_error: str | None = None
+        # False while the connection switch is off: no BLE connection and no
+        # advertisement tracking, so the scale can stay asleep.
+        self.connection_enabled = True
 
         self._store = Store(
             hass,
@@ -298,8 +301,36 @@ class YunmaiScaleManager:
         if isinstance(last_uid, int) and last_uid in self.profiles_by_uid:
             self.last_user_uid = last_uid
 
+    async def async_set_connection_enabled(self, enabled: bool) -> None:
+        """Resume or pause the BLE connection (connection switch)."""
+        task_running = (
+            self._connection_task is not None and not self._connection_task.done()
+        )
+        if enabled == self.connection_enabled and (not enabled or task_running):
+            return
+        self.connection_enabled = enabled
+        if enabled:
+            _LOGGER.info("Yunmai connection enabled for %s", self.address)
+            self._set_status("starting")
+            await self.async_start()
+        else:
+            _LOGGER.info(
+                "Yunmai connection paused for %s; the scale can sleep",
+                self.address,
+            )
+            await self.async_stop(reason="connection_paused")
+            self._set_status("paused")
+        async_dispatcher_send(self.hass, self.signal)
+
     async def async_start(self) -> None:
         """Start advertisement tracking and the persistent connection loop."""
+        if not self.connection_enabled:
+            _LOGGER.debug(
+                "Yunmai connection is paused for %s; not starting",
+                self.address,
+            )
+            self._set_status("paused")
+            return
         if self._connection_task is not None and not self._connection_task.done():
             _LOGGER.debug(
                 "Yunmai persistent manager is already running for %s",

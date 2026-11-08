@@ -4,6 +4,14 @@ All notable changes to this project are documented here.
 
 ## Unreleased
 
+### Added
+
+- `Connection` switch. Turning it off closes the BLE connection and stops
+  advertisement tracking so the scale can sleep; turning it on reconnects.
+  The state is restored after a restart, so a schedule helper and an
+  automation can keep the scale connected only during the hours it is used.
+  While paused, the session status sensor reports `paused`.
+
 ## 0.4.2 - 2026-08-06
 
 ### Fixed
